@@ -2,6 +2,15 @@ mod no_ad;
 mod forward_ad;
 mod newton;
 
-use no_ad::*;
-use forward_ad::AmericanCall;
-use forward_ad::AmericanPut;
+use no_ad::{
+    bs_call_price,
+    bs_put_price,
+    bs_call_iv,
+    bs_put_iv
+};
+
+use forward_ad::{
+    AmericanCall,
+    AmericanPut,
+    bs_call_price_dual2,
+};
