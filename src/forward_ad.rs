@@ -353,18 +353,117 @@ pub fn bs_call_gamma(
     price.v2
 }
 
+pub fn bs_call_iv(
+    spot: f64,
+    strike: f64,
+    risk_free_rate: f64,
+    dividend_rate: f64,
+    time_to_maturity: f64,
+    price: f64,
+) -> Result<f64, roots::SearchError> {
+    let f = |x| {
+        let price_dual = bs_call_price_dual2(
+            spot.into(),
+            strike.into(),
+            Dual2_64::from_re(x).derivative(),
+            risk_free_rate.into(),
+            dividend_rate.into(),
+            time_to_maturity.into()
+        );
+        (price_dual.re - price, price_dual.v1)
+    };
+    let d = |x| {
+        let vega = bs_call_vega(spot, strike, x, risk_free_rate, dividend_rate, time_to_maturity);
+        vega * 100.
+    };
 
-pub fn bs_put_price_dual2(
-    spot: Dual2_64,
-    strike: Dual2_64,
-    volatility: Dual2_64,
-    risk_free_rate: Dual2_64,
-    dividend_rate: Dual2_64,
-    time_to_maturity: Dual2_64,
-) -> Dual2_64 {
-    // use put-call parity to price american put
-    let (spot, strike, risk_free_rate, dividend_rate) = (strike, spot, dividend_rate, risk_free_rate);
-    BjerksundStensland::new(spot, strike, volatility, risk_free_rate, dividend_rate, time_to_maturity).price_call()
+    use crate::newton::find_root_newton_raphson_dual;
+    let mut convergency = roots::SimpleConvergency { eps:1e-3f64, max_iter:1000 };
+    let mut root = find_root_newton_raphson_dual(1e-3f64,  &f, &mut convergency);
+    if root.is_err() {
+        root = find_root_newton_raphson_dual(1e-2f64, &f, &mut convergency);
+    }
+    if root.is_err() {
+        root = find_root_newton_raphson_dual(1e-1f64, &f, &mut convergency);
+    }
+    if root.is_err() {
+        root = find_root_newton_raphson_dual(1f64, &f, &mut convergency);
+    }
+    if root.is_err() {
+        root = find_root_newton_raphson_dual(10f64, &f, &mut convergency);
+    }
+    root
+}
+
+#[derive(Debug, Clone)]
+pub struct OptionPricingOutcomes {
+    price: f64,
+    delta: f64,
+    gamma: f64,
+    theta: f64,
+    rho: f64,
+    vega: f64,
+}
+
+pub struct AmericanCall {
+    spot: f64,
+    strike: f64,
+    risk_free_rate: f64,
+    dividend_rate: f64,
+    time_to_maturity: f64,
+}
+
+impl AmericanCall {
+    pub fn new(
+        spot: f64,
+        strike: f64,
+        risk_free_rate: f64,
+        dividend_rate: f64,
+        time_to_maturity: f64,
+    ) -> Self {
+        Self { spot, strike, risk_free_rate, dividend_rate, time_to_maturity }
+    }
+
+    pub fn price(&self, volatility: f64) -> OptionPricingOutcomes {
+        let Self { spot, strike, risk_free_rate, dividend_rate, time_to_maturity } = *self;
+        let model_price = crate::no_ad::bs_call_price(spot, strike, volatility, risk_free_rate, dividend_rate, time_to_maturity);
+        let delta = bs_call_delta(spot, strike, volatility, risk_free_rate, dividend_rate, time_to_maturity);
+        let gamma = bs_call_gamma(spot, strike, volatility, risk_free_rate, dividend_rate, time_to_maturity);
+        let theta = bs_call_theta(spot, strike, volatility, risk_free_rate, dividend_rate, time_to_maturity);
+        let rho = bs_call_rho(spot, strike, volatility, risk_free_rate, dividend_rate, time_to_maturity);
+        let vega = bs_call_vega(spot, strike, volatility, risk_free_rate, dividend_rate, time_to_maturity);
+        OptionPricingOutcomes { price: model_price, delta, gamma, theta, rho, vega }
+    }
+
+    pub fn iv(&self, price: f64) -> Result<f64, roots::SearchError> {
+        let Self { spot, strike, risk_free_rate, dividend_rate, time_to_maturity } = *self;
+        let iv = bs_call_iv(spot, strike, risk_free_rate, dividend_rate, time_to_maturity, price);
+        iv
+    }
+}
+
+pub struct AmericanPut(AmericanCall);
+
+impl AmericanPut {
+    pub fn new(
+        spot: f64,
+        strike: f64,
+        risk_free_rate: f64,
+        dividend_rate: f64,
+        time_to_maturity: f64,
+    ) -> Self {
+        let (spot, strike, risk_free_rate, dividend_rate) = (strike, spot, dividend_rate, risk_free_rate);
+        let call = AmericanCall::new(spot, strike, risk_free_rate, dividend_rate, time_to_maturity);
+        Self(call)
+    }
+
+    pub fn price(&self, volatility: f64) -> OptionPricingOutcomes {
+        self.0.price(volatility)
+    }
+
+    pub fn iv(&self, price: f64) -> Result<f64, roots::SearchError> {
+        self.0.iv(price)
+    }
 }
 
 #[cfg(test)]
@@ -379,20 +478,20 @@ mod tests {
         let r = 0.05;
         let q = 0.03;
         let t = 1.0;
-        let price = bs_call_price_dual2(s.into(), k.into(), v.into(), r.into(), q.into(), t.into());
-        let delta = bs_call_delta(s, k, v, r, q, t);
-        let theta = bs_call_theta(s, k, v, r, q, t);
-        let gamma = bs_call_gamma(s, k, v, r, q, t);
-        let vega = bs_call_vega(s, k, v, r, q, t);
-        let rho = bs_call_rho(s, k, v, r, q, t);
-        assert_eq!(price, delta.into(),
-            "price is {}\n delta is  {}\n theta is {}\n gamma is {}\n vega is {}\n rho is {}",
-            price,
-            delta,
-            theta,
-            gamma,
-            vega,
-            rho,
+        let market_price = 12.0;
+        let call_option = AmericanCall::new(s, k, r, q, t);
+        let outcome = call_option.price(v);
+        let iv = call_option.iv(market_price).unwrap();
+        assert_eq!(
+            outcome.price, outcome.delta,
+            "price is {}\n delta is  {}\n theta is {}\n gamma is {}\n vega is {}\n rho is {}\n iv is {}",
+            outcome.price,
+            outcome.delta,
+            outcome.theta,
+            outcome.gamma,
+            outcome.vega,
+            outcome.rho,
+            iv,
         );
     }
 
@@ -416,12 +515,12 @@ mod tests {
         let a_dual = Dual2_64::new(a_val, a_v1, a_v2);
         let b_dual = Dual2_64::new(b_val, b_v1, b_v2);
         let rho_dual = Dual2_64::new(rho_val, rho_v1, rho_v2);
-        
+
         let ad_result = bn_cdf_dual2(&a_dual, &b_dual, &rho_dual);
         let (ad_re, ad_v1, ad_v2) = (ad_result.re, ad_result.v1, ad_result.v2);
 
         // 3. Setup for Finite Difference Method (FDM)
-        
+
         // Helper function to evaluate the composite function g(t) at a given t
         // g(t) = f(a(t), b(t), rho(t))
         let g = |t: f64| -> f64 {
@@ -438,7 +537,7 @@ mod tests {
         let h = 1e-5; // Step size for finite difference
 
         // 4. Calculate FDM approximations
-        
+
         // Get function values at t=0, t=h, and t=-h
         let g_zero = g(0.0);
         let g_plus_h = g(h);
@@ -446,12 +545,12 @@ mod tests {
 
         // Central difference for first derivative
         let fdm_v1 = (g_plus_h - g_minus_h) / (2.0 * h);
-        
+
         // Central difference for second derivative
         let fdm_v2 = (g_plus_h - 2.0 * g_zero + g_minus_h) / (h * h);
 
         // 5. Assert results
-        
+
         // Value (re) should be almost identical
         assert!(
             (ad_re - g_zero).abs() < 1e-15,
@@ -475,5 +574,5 @@ mod tests {
             ad_v2, fdm_v2, (ad_v2 - fdm_v2).abs()
         );
     }
-    
+
 }
