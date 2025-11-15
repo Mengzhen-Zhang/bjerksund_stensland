@@ -7,6 +7,10 @@ edition = "2024"
 name = "american_call"
 path = "examples/american_call.rs"
 
+[[example]]
+name = "american_put"
+path = "examples/american_put.rs"
+
 [dependencies]
 autodiff = "0.7.0"
 mv-norm = "0.1.6"

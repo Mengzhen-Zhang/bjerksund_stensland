@@ -1,14 +1,7 @@
-use autodiff::One;
-use num_dual::*;
-use nalgebra::SVector;
+use num_dual::{Dual,  Dual2_64, Dual64, DualNum};
 use nalgebra::RealField;
 use statrs::distribution::ContinuousCDF;
-use statrs::distribution::Continuous;
 use std::f64::consts::PI;
-
-fn std_norm_pdf(x: f64) -> f64 {
-    (- x.powi(2) * 0.5).exp() / (2. * PI).sqrt()
-}
 
 fn std_norm_cdf(x: f64) -> f64 {
     use statrs::distribution::Normal as Normal;
@@ -278,6 +271,24 @@ pub fn bs_call_delta(
     price.v1
 }
 
+fn bs_call_d_strike(
+    spot: f64,
+    strike: f64,
+    volatility: f64,
+    risk_free_rate: f64,
+    dividend_rate: f64,
+    time_to_maturity: f64,
+) -> f64 {
+    let price = bs_call_price_dual2(
+        spot.into(),
+        Dual2_64::from_re(strike).derivative(),
+        volatility.into(),
+        risk_free_rate.into(),
+        dividend_rate.into(),
+        time_to_maturity.into());
+    price.v1
+}
+
 pub fn bs_call_theta(
     spot: f64,
     strike: f64,
@@ -311,6 +322,25 @@ pub fn bs_call_rho(
         Dual2_64::from_re(risk_free_rate).derivative(),
         dividend_rate.into(),
         Dual2_64::from_re(time_to_maturity)
+    );
+    price.v1 / 100.
+}
+
+pub fn bs_call_d_dividend(
+    spot: f64,
+    strike: f64,
+    volatility: f64,
+    risk_free_rate: f64,
+    dividend_rate: f64,
+    time_to_maturity: f64,
+) -> f64 {
+    let price = bs_call_price_dual2(
+        spot.into(),
+        strike.into(),
+        volatility.into(),
+        risk_free_rate.into(),
+        Dual2_64::from_re(dividend_rate).derivative(),
+        time_to_maturity.into()
     );
     price.v1 / 100.
 }
@@ -350,6 +380,24 @@ pub fn bs_call_gamma(
         dividend_rate.into(),
         time_to_maturity.into()
     );
+    price.v2
+}
+
+fn bs_call_d2_strike(
+    spot: f64,
+    strike: f64,
+    volatility: f64,
+    risk_free_rate: f64,
+    dividend_rate: f64,
+    time_to_maturity: f64,
+) -> f64 {
+    let price = bs_call_price_dual2(
+        spot.into(),
+        Dual2_64::from_re(strike).derivative(),
+        volatility.into(),
+        risk_free_rate.into(),
+        dividend_rate.into(),
+        time_to_maturity.into());
     price.v2
 }
 
@@ -396,13 +444,13 @@ pub fn bs_call_iv(
 }
 
 #[derive(Debug, Clone)]
-pub struct OptionPricingOutcomes {
+pub struct CallOutcomes {
     price: f64,
     delta: f64,
     gamma: f64,
+    vega: f64,
     theta: f64,
     rho: f64,
-    vega: f64,
 }
 
 pub struct AmericanCall {
@@ -421,10 +469,23 @@ impl AmericanCall {
         dividend_rate: f64,
         time_to_maturity: f64,
     ) -> Self {
-        Self { spot, strike, risk_free_rate, dividend_rate, time_to_maturity }
+        Self {
+            spot: spot.into(),
+            strike: strike.into(),
+            risk_free_rate: risk_free_rate.into(),
+            dividend_rate: dividend_rate.into(),
+            time_to_maturity: time_to_maturity.into()
+        }
     }
 
-    pub fn price(&self, volatility: f64) -> OptionPricingOutcomes {
+    pub fn price(&self, volatility: f64) -> CallOutcomes {
+        let Self {
+            spot: s,
+            strike: k,
+            risk_free_rate: r,
+            dividend_rate: q,
+            time_to_maturity: t
+        } = *self;
         let Self { spot, strike, risk_free_rate, dividend_rate, time_to_maturity } = *self;
         let model_price = crate::no_ad::bs_call_price(spot, strike, volatility, risk_free_rate, dividend_rate, time_to_maturity);
         let delta = bs_call_delta(spot, strike, volatility, risk_free_rate, dividend_rate, time_to_maturity);
@@ -432,7 +493,7 @@ impl AmericanCall {
         let theta = bs_call_theta(spot, strike, volatility, risk_free_rate, dividend_rate, time_to_maturity);
         let rho = bs_call_rho(spot, strike, volatility, risk_free_rate, dividend_rate, time_to_maturity);
         let vega = bs_call_vega(spot, strike, volatility, risk_free_rate, dividend_rate, time_to_maturity);
-        OptionPricingOutcomes { price: model_price, delta, gamma, theta, rho, vega }
+        CallOutcomes { price: model_price, delta, gamma, theta, rho, vega }
     }
 
     pub fn iv(&self, price: f64) -> Result<f64, roots::SearchError> {
@@ -442,7 +503,23 @@ impl AmericanCall {
     }
 }
 
-pub struct AmericanPut(AmericanCall);
+#[derive(Debug, Clone)]
+pub struct PutOutcomes {
+    price: f64,
+    delta: f64,
+    gamma: f64,
+    vega: f64,
+    theta: f64,
+    rho: f64,
+}
+
+pub struct AmericanPut {
+    spot: f64,
+    strike: f64,
+    risk_free_rate: f64,
+    dividend_rate: f64,
+    time_to_maturity: f64,
+}
 
 impl AmericanPut {
     pub fn new(
@@ -452,17 +529,37 @@ impl AmericanPut {
         dividend_rate: f64,
         time_to_maturity: f64,
     ) -> Self {
-        let (spot, strike, risk_free_rate, dividend_rate) = (strike, spot, dividend_rate, risk_free_rate);
-        let call = AmericanCall::new(spot, strike, risk_free_rate, dividend_rate, time_to_maturity);
-        Self(call)
+        Self {
+            spot: spot.into(),
+            strike: strike.into(),
+            risk_free_rate: risk_free_rate.into(),
+            dividend_rate: dividend_rate.into(),
+            time_to_maturity: time_to_maturity.into()
+        }
     }
 
-    pub fn price(&self, volatility: f64) -> OptionPricingOutcomes {
-        self.0.price(volatility)
+    pub fn price(&self, volatility: f64) -> PutOutcomes {
+        let Self {
+            spot: s,
+            strike: k,
+            risk_free_rate: r,
+            dividend_rate: q,
+            time_to_maturity: t
+        } = *self;
+        let Self { spot, strike, risk_free_rate, dividend_rate, time_to_maturity } = *self;
+        let model_price = crate::no_ad::bs_call_price(strike, spot, volatility, dividend_rate, risk_free_rate, time_to_maturity);
+        let delta = bs_call_d_strike(strike, spot, volatility, dividend_rate, risk_free_rate, time_to_maturity);
+        let gamma = bs_call_d2_strike(strike, spot, volatility, dividend_rate, risk_free_rate, time_to_maturity);
+        let theta = bs_call_theta(strike, spot, volatility, dividend_rate, risk_free_rate, time_to_maturity);
+        let rho = bs_call_d_dividend(strike, spot, volatility, dividend_rate, risk_free_rate, time_to_maturity);
+        let vega = bs_call_vega(strike, spot, volatility, dividend_rate, risk_free_rate, time_to_maturity);
+        PutOutcomes { price: model_price, delta, gamma, theta, rho, vega }
     }
 
     pub fn iv(&self, price: f64) -> Result<f64, roots::SearchError> {
-        self.0.iv(price)
+        let Self { spot, strike, risk_free_rate, dividend_rate, time_to_maturity } = *self;
+        let iv = bs_call_iv(strike, spot, dividend_rate, risk_free_rate, time_to_maturity, price);
+        iv
     }
 }
 
