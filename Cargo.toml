@@ -3,12 +3,14 @@ name = "bjerksund_stensland"
 version = "0.1.0"
 edition = "2024"
 
+[[example]]
+name = "american_call"
+path = "examples/american_call.rs"
+
 [dependencies]
-ad_trait = "0.1.6"
 autodiff = "0.7.0"
 mv-norm = "0.1.6"
 nalgebra = "0.34.1"
-ndarray = "0.17.1"
 num-dual = "0.12.1"
 roots = "0.0.8"
 simba = "0.9.1"
