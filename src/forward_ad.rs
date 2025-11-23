@@ -1,7 +1,8 @@
-use num_dual::{Dual,  Dual2_64, Dual64, DualNum};
+use num_dual::{Dual, Dual2_64, Dual64, DualNum};
 use nalgebra::RealField;
 use statrs::distribution::ContinuousCDF;
 use std::f64::consts::PI;
+
 
 fn std_norm_cdf(x: f64) -> f64 {
     use statrs::distribution::Normal as Normal;
@@ -562,6 +563,8 @@ impl AmericanPut {
         iv
     }
 }
+
+
 
 #[cfg(test)]
 mod tests {
