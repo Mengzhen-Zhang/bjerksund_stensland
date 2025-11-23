@@ -102,6 +102,7 @@ where
     BvNorm::new(a, b, rho).cdf()
 }
 
+#[allow(dead_code)]
 pub fn bv_norm_pdf<T>(a: T, b:T, rho: T) -> T
 where
     BvNorm<T>: BvNormPdf<T>

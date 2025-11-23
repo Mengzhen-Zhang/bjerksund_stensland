@@ -1,5 +1,3 @@
-use std::ops::Sub;
-
 use num_dual::Dual2_64;
 use num_dual::{Dual2SVec64, DualNum};
 use nalgebra::{Const, RealField};
@@ -106,13 +104,13 @@ where
         };
         let mut result = (lambda * tau).exp() * (gamma * s.ln()).exp();
         result *= std_norm_cdf(- d1)
-            - (kappa * (x_t / s).ln()).exp() * std_norm_cdf((- d2));
+            - (kappa * (x_t / s).ln()).exp() * std_norm_cdf(- d2);
         result
     }
 
     fn psi(&self, gamma: D, h: D) -> D {
-        let Self {s, k, t, r, b, v,
-            tau, beta, x_t, x_tau} = *self;
+        let Self {s, k: _, t, r: _, b: _, v,
+            tau, beta: _, x_t, x_tau} = *self;
         let rho = (tau / t).sqrt();
         let kappa = self.kappa(gamma);
         let zeta = self.zeta(gamma);
@@ -145,8 +143,8 @@ where
     }
 
     fn price_call(&self) -> D {
-        let Self {s, k, t, r, b, v,
-            tau, beta, x_t, x_tau} = *self;
+        let Self {s, k, t: _, r: _, b: _, v: _,
+            tau: _, beta, x_t, x_tau} = *self;
         
         let one = 1.0.into();
         let zero = 0.0.into();
@@ -174,6 +172,7 @@ pub enum OptionType {
     Call,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct OptionOutcomes {
     price: f64,
