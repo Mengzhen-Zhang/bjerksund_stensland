@@ -2,6 +2,9 @@
 name = "bjerksund_stensland"
 version = "0.1.0"
 edition = "2024"
+description = "A Rust implementation of the Bjerksund-Stensland approximation for pricing American options."
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/Mengzhen-Zhang/bjerksund_stensland.git"
 
 [[example]]
 name = "american_call"
